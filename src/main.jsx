@@ -55,6 +55,39 @@ const statLabels = {
   Miss: '框了'
 };
 
+let sharedAudioContext;
+
+function getAudioContext() {
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContext) return null;
+  if (!sharedAudioContext || sharedAudioContext.state === 'closed') {
+    sharedAudioContext = new AudioContext();
+  }
+  return sharedAudioContext;
+}
+
+function unlockAudio() {
+  const context = getAudioContext();
+  if (!context) return;
+
+  if (context.state === 'suspended') {
+    context.resume().catch(() => {});
+  }
+
+  try {
+    const gain = context.createGain();
+    const osc = context.createOscillator();
+    const now = context.currentTime;
+    gain.gain.setValueAtTime(0.00001, now);
+    osc.frequency.setValueAtTime(1, now);
+    osc.connect(gain).connect(context.destination);
+    osc.start(now);
+    osc.stop(now + 0.01);
+  } catch {
+    // Best-effort mobile audio unlock.
+  }
+}
+
 const patterns = [
   { name: 'left-to-center', start: { x: 12, y: -8 }, end: { x: 74, y: 92 }, bend: -12 },
   { name: 'right-to-center', start: { x: 88, y: -8 }, end: { x: 26, y: 92 }, bend: 12 },
@@ -205,10 +238,13 @@ function racketPoseFromPoint(point, power = 0) {
 }
 
 function playImpactSound(result = 'Good') {
-  const AudioContext = window.AudioContext || window.webkitAudioContext;
-  if (!AudioContext) return;
+  const context = getAudioContext();
+  if (!context) return;
 
   try {
+    if (context.state === 'suspended') {
+      context.resume().catch(() => {});
+    }
     const profile = {
       Perfect: { master: 0.82, slap: 1.35, snap: 1.18, string: 1.15, sub: 0.24, tail: 1.1, frame: 0 },
       Good: { master: 0.42, slap: 0.28, snap: 0.82, string: 0.88, sub: 0.09, tail: 0.42, frame: 0 },
@@ -217,7 +253,6 @@ function playImpactSound(result = 'Good') {
       Late: { master: 0.2, slap: 0, snap: 0.16, string: 0.16, sub: 0, tail: 0, frame: 0.5 },
       Miss: { master: 0.18, slap: 0, snap: 0, string: 0, sub: 0, tail: 0, frame: 0 }
     }[result] || { master: 0.34, slap: 0.2, snap: 0.5, string: 0.55, sub: 0.04, tail: 0.2, frame: 0.2 };
-    const context = new AudioContext();
     const now = context.currentTime;
     const master = context.createGain();
     master.gain.setValueAtTime(0.0001, now);
@@ -242,7 +277,6 @@ function playImpactSound(result = 'Good') {
       whoosh.connect(filter).connect(master);
       whoosh.start(now);
       whoosh.stop(now + 0.18);
-      window.setTimeout(() => context.close(), 280);
       return;
     }
 
@@ -352,7 +386,6 @@ function playImpactSound(result = 'Good') {
       tail.stop(now + 0.16);
     }
 
-    window.setTimeout(() => context.close(), 420);
   } catch {
     // Audio is best-effort; browsers may block it outside a trusted gesture.
   }
@@ -528,10 +561,12 @@ function App() {
   }, [clearTimers, startPrep]);
 
   function playSoftCue() {
-    const AudioContext = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContext) return;
+    const context = getAudioContext();
+    if (!context) return;
     try {
-      const context = new AudioContext();
+      if (context.state === 'suspended') {
+        context.resume().catch(() => {});
+      }
       const osc = context.createOscillator();
       const gain = context.createGain();
       const now = context.currentTime;
@@ -543,17 +578,18 @@ function App() {
       osc.connect(gain).connect(context.destination);
       osc.start(now);
       osc.stop(now + 0.13);
-      window.setTimeout(() => context.close(), 180);
     } catch {
       // Optional timing cue.
     }
   }
 
   function playCountdownCue(step) {
-    const AudioContext = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContext) return;
+    const context = getAudioContext();
+    if (!context) return;
     try {
-      const context = new AudioContext();
+      if (context.state === 'suspended') {
+        context.resume().catch(() => {});
+      }
       const now = context.currentTime;
       const osc = context.createOscillator();
       const gain = context.createGain();
@@ -565,7 +601,6 @@ function App() {
       osc.connect(gain).connect(context.destination);
       osc.start(now);
       osc.stop(now + 0.13);
-      window.setTimeout(() => context.close(), 180);
     } catch {
       // Countdown audio is best-effort.
     }
@@ -607,6 +642,7 @@ function App() {
     if (!courtRef.current || phase !== 'incoming') return;
     const point = pointFromEvent(event);
     if (point.y < ACTIVE_ZONE_TOP) return;
+    unlockAudio();
     event.currentTarget.setPointerCapture(event.pointerId);
     const now = performance.now();
     pointerStart.current = point;
